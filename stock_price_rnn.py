@@ -21,25 +21,26 @@ DATA_ROOT = ROOT / "data"
 # class representing the data
 class StockPrice(Dataset):
     
-    def __init__(self, data_split, seq_length, tgt_length, train=True):
+    def __init__(self, seq_length, test_length, train=True):
         # complete data set
         self.data = pd.read_csv(DATA_ROOT / "data.csv")[["Date", "Close"]].sort_values("Date")
-        # number of samples in training data set
-        n_train = int(np.floor(len(self.data) * data_split))   
+   
         # divide data into training and testing sets in chronological order
         if train:
-            df = self.data.iloc[:n_train, :]
-        else:
-            df = self.data.iloc[n_train:, :]
-        
-        # split the data into sequences  
-        input_temp, target_temp = [], []
-        for i in range(len(df)-(seq_length+tgt_length)):
-            input_temp.append(df.iloc[i:(i+seq_length), 1].values)
-            target_temp.append(df.iloc[(i+seq_length):(i+seq_length+tgt_length), 1].values)
+            df = self.data.iloc[:(len(self.data) - test_length), :]
+            
+            # for training, split the data into sequences  
+            input_temp, target_temp = [], []
+            for i in range(len(df)-(seq_length+1)):
+                input_temp.append(df.iloc[i:(i+seq_length), 1].values)
+                target_temp.append(df.iloc[(i+seq_length):(i+seq_length+1), 1].values)
     
-        self.inputs = torch.stack([torch.from_numpy(x) for x in input_temp])
-        self.targets = torch.stack([torch.from_numpy(x) for x in target_temp])
+            self.inputs = torch.stack([torch.from_numpy(x) for x in input_temp])
+            self.targets = torch.stack([torch.from_numpy(x) for x in target_temp])
+            
+        else:
+            self.targets = self.data.iloc[(len(self.data) - test_length):, :]
+            self.inputs = None
         
     def __len__(self):
         return len(self.targets)
@@ -50,22 +51,20 @@ class StockPrice(Dataset):
         return sample, label
     
 # %%
-# create train-test split and initialize data loaders
-data_split = 0.95
-seq_length, tgt_length, forecast_length = 5, 1, 5
+# create train-test split and initialize data loader for training
+seq_length, test_length = 5, 5
 batch_size = 10
 
-training_data = StockPrice(data_split, seq_length, tgt_length, train=True)
+training_data = StockPrice(seq_length, test_length, train=True)
 train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
 
-testing_data = StockPrice(data_split, seq_length, forecast_length, train=False)
-test_dataloader = DataLoader(testing_data, batch_size=batch_size, shuffle=True)
+testing_data = StockPrice(seq_length, test_length, train=False)
 
 # %%
 # visualize the data with train-test split
 df = training_data.data
-n_train = int(np.floor(len(df) * data_split))
 df.loc[:, ["Train", "Test"]] = np.nan
+n_train = len(df) - test_length
 df.iloc[:n_train, 2] = df.iloc[:n_train, 1]
 df.iloc[n_train:, 3] = df.iloc[n_train:, 1]
 
