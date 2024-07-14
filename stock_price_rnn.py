@@ -89,3 +89,50 @@ fig, ax = plt.subplots(1, 1, figsize=(16,6))
 df.plot(x="Date", y=["Train", "Test"], ax=ax, style=["-", "--"], grid=True)
 
 plt.show()
+
+# %%
+# model using LSTM
+class LSTM(nn.Module):
+    def __init__(self, n_input=1, n_hidden=10, n_output=1):
+        super(LSTM, self).__init__()
+        self.n_hidden = n_hidden
+        self.lstm = nn.LSTM(n_input, n_hidden)
+        self.linear = nn.Linear(n_hidden, n_output)
+        
+    def forward(self, x, hidden, state):
+        output, (hidden, _) = self.lstm(x, (hidden, state))
+        y = self.linear(output)
+        return y[-1], hidden
+    
+    def init_hidden(self, batch_size):
+        # initialize hidden and cell states to zeros
+        return torch.zeros([1, batch_size, self.n_hidden], dtype=torch.float), torch.zeros([1, batch_size, self.n_hidden], dtype=torch.float)
+    
+# %%
+lstm = LSTM()
+
+N_epochs = 15
+optimizer = optim.Adam(lstm.parameters(), lr=0.001)
+
+start_time = time.time()
+for n in range(N_epochs):
+    
+    losses = []
+    
+    for inputs, outputs in train_dataloader: 
+        # format the input for LSTM: batch size is the second dimension
+        x = inputs.T.view((seq_length, batch_size, 1))
+        
+        optimizer.zero_grad()
+        hidden, state = lstm.init_hidden(batch_size)
+        y, _ = lstm.forward(x, hidden, state)
+        loss = F.mse_loss(y, outputs)
+        loss.backward()
+        optimizer.step()
+        
+        losses.append(loss.item())
+    
+    print(f"On epoch {n+1}, the average loss is {np.mean(losses)}.")
+        
+end_time = time.time()
+print(f"Total training time {end_time - start_time}")
