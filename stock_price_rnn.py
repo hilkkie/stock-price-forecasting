@@ -40,11 +40,11 @@ class StockPrice(Dataset):
    
         # divide data into training and testing sets in chronological order
         if train:
-            data = self.data.iloc[:(len(self.data) - (seq_length+test_length)), :]
+            data = self.data.iloc[:(len(self.data) - test_length), :]
             
             # for training, split the data into sequences  
             input_temp, target_temp = [], []
-            for i in range(len(data)-(seq_length+test_length+1)):
+            for i in range(len(data)-(seq_length+1)):
                 input_temp.append(data.iloc[i:(i+seq_length), 2].values)
                 target_temp.append(data.iloc[(i+seq_length):(i+seq_length+1), 2].values)
     
@@ -64,7 +64,7 @@ class StockPrice(Dataset):
     def __getitem__(self, idx):
         sample = self.inputs[idx,:]
         label = self.targets[idx]
-        return sample, label    
+        return sample, label        
     
 # %%
 # create train-test split and initialize data loader for training
