@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 from pathlib import Path
 
@@ -79,14 +80,23 @@ testing_data = StockPrice(seq_length, test_length, train=False, scaler=data_scal
 
 # %%
 # visualize the data with train-test split
-df = training_data.data
+df = training_data.data.copy().assign(Date = lambda x: pd.to_datetime(x["Date"], format="%Y-%m-%d"))
 df.loc[:, ["Train", "Test"]] = np.nan
-n_train = len(df) - (seq_length+test_length)
+n_train = len(df) - test_length
 df.iloc[:n_train, 3] = df.iloc[:n_train, 1]
 df.iloc[n_train:, 4] = df.iloc[n_train:, 1]
 
 fig, ax = plt.subplots(1, 1, figsize=(16,6))
+
 df.plot(x="Date", y=["Train", "Test"], ax=ax, style=["-", "--"], grid=True)
+
+# set major ticks every year, minor tick every month
+ax.xaxis.set_major_locator(mdates.MonthLocator(bymonth=1))
+ax.xaxis.set_minor_locator(mdates.MonthLocator())
+# format x-axis ticks
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+for label in ax.get_xticklabels(which="major"):
+    label.set(rotation=30)
 
 plt.show()
 
@@ -172,3 +182,21 @@ for n in range(N_epochs):
         
 end_time = time.time()
 print(f"Total training time {end_time - start_time}")
+
+# %%
+# add LSTM prediction to the constructed data frame
+test_input, test_targets = testing_data.inputs, testing_data.targets
+ypred = lstm.forecast(test_input, len(test_targets), scaler=testing_data.scaler)
+ypred = ypred.numpy().flatten()
+
+df.loc[:, "LSTM"] = np.nan
+df.iloc[(len(df) - len(ypred)):, 5] = ypred
+
+fig, ax = plt.subplots(1, 1, figsize=(4,4))
+
+df.iloc[-20:, :].plot(x="Date", y=["Train", "Test", "LSTM"], ax=ax, style=["-", "--", ":"], grid=True)
+
+ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
+ax.xaxis.set_minor_locator(mdates.DayLocator())
+
+plt.show()
