@@ -40,11 +40,11 @@ class StockPrice(Dataset):
    
         # divide data into training and testing sets in chronological order
         if train:
-            data = self.data.iloc[:(len(self.data) - test_length), :]
+            data = self.data.iloc[:(len(self.data) - (seq_length+test_length)), :]
             
             # for training, split the data into sequences  
             input_temp, target_temp = [], []
-            for i in range(len(data)-(seq_length+1)):
+            for i in range(len(data)-(seq_length+test_length+1)):
                 input_temp.append(data.iloc[i:(i+seq_length), 2].values)
                 target_temp.append(data.iloc[(i+seq_length):(i+seq_length+1), 2].values)
     
@@ -52,8 +52,11 @@ class StockPrice(Dataset):
             self.targets = torch.stack([torch.from_numpy(x) for x in target_temp]).float()
             
         else:
-            self.targets = torch.from_numpy(self.data.iloc[(len(self.data) - test_length):, 2].values).float()
-            self.inputs = None
+            self.inputs = torch.from_numpy(
+                self.data.iloc[(len(self.data)-(seq_length+test_length)):(len(self.data)-test_length), 2].values
+            ).float()
+            self.targets = torch.from_numpy(self.data.iloc[(len(self.data)-test_length):, 2].values).float()
+            
         
     def __len__(self):
         return len(self.targets)
@@ -78,7 +81,7 @@ testing_data = StockPrice(seq_length, test_length, train=False, scaler=data_scal
 # visualize the data with train-test split
 df = training_data.data
 df.loc[:, ["Train", "Test"]] = np.nan
-n_train = len(df) - test_length
+n_train = len(df) - (seq_length+test_length)
 df.iloc[:n_train, 3] = df.iloc[:n_train, 1]
 df.iloc[n_train:, 4] = df.iloc[n_train:, 1]
 
