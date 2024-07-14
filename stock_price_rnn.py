@@ -108,9 +108,39 @@ class LSTM(nn.Module):
         # initialize hidden and cell states to zeros
         return torch.zeros([1, batch_size, self.n_hidden], dtype=torch.float), torch.zeros([1, batch_size, self.n_hidden], dtype=torch.float)
     
+    def forecast(self, x, period_length, scaler=None):
+        # forecast a sequence of length period_length
+        y_fct = torch.zeros(period_length)
+        
+        self.eval()
+        with torch.no_grad():
+            for n in range(period_length):
+                hidden, state = self.init_hidden(1)
+                y, _ = self.forward(x.reshape((len(x), 1, 1)), hidden, state)
+        
+                # update the state
+                x = torch.cat((x, y.flatten()))[1:]
+                y_fct[n] = y.flatten()
+                
+        # scale the output if transformation is given
+        if scaler is not None:
+            y_fct = torch.from_numpy(scaler.inverse_transform(y_fct.numpy()))
+            
+        return y_fct
+    
+    def calculate_loss(self, test_data, scale_output=False):
+        # calculate loss over test data
+        x, targets = test_data.inputs, test_data.targets
+        scaler = test_data.scaler if scale_output else None
+        y = self.forecast(x, len(targets), scaler=scaler)
+                
+        return F.mse_loss(y, targets)
+    
 # %%
-lstm = LSTM()
+# create a model and train it using training data
+lstm = LSTM(n_hidden=20)
 
+# initialize learning parameters
 N_epochs = 15
 optimizer = optim.Adam(lstm.parameters(), lr=0.001)
 
@@ -118,11 +148,13 @@ start_time = time.time()
 for n in range(N_epochs):
     
     losses = []
+    test_losses = []
     
     for inputs, outputs in train_dataloader: 
         # format the input for LSTM: batch size is the second dimension
         x = inputs.T.view((seq_length, batch_size, 1))
         
+        # perform single step of optimization
         optimizer.zero_grad()
         hidden, state = lstm.init_hidden(batch_size)
         y, _ = lstm.forward(x, hidden, state)
@@ -130,9 +162,13 @@ for n in range(N_epochs):
         loss.backward()
         optimizer.step()
         
+        # store training and test losses for monitoring
         losses.append(loss.item())
+        test_losses.append(lstm.calculate_loss(testing_data))
+        lstm.train()
     
-    print(f"On epoch {n+1}, the average loss is {np.mean(losses)}.")
+    # monitor progress
+    print(f"On epoch {n+1}, the average trainig loss is {np.mean(losses):.6f} and average test error is {np.mean(test_losses):.6f}.")
         
 end_time = time.time()
 print(f"Total training time {end_time - start_time}")
