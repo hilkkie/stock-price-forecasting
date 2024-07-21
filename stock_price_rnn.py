@@ -68,19 +68,27 @@ class StockPrice(Dataset):
         return sample, label        
     
 # %%
-# create train-test split and initialize data loader for training
-seq_length, test_length = 5, 5
+test_length = 5 # forecasting period
+seq_length_small, seq_length_medium, seq_length_large = 5, 10, 25
 batch_size = 10
 data_scaler = MinMaxScaler(feature_range=(-1, 1))
 
-training_data = StockPrice(seq_length, test_length, train=True, scaler=data_scaler)
-train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+# create three different data sets with varying sequence lengths
+training_data_small = StockPrice(seq_length_small, test_length, train=True, scaler=data_scaler)
+train_dataloader_small = DataLoader(training_data_small, batch_size=batch_size, shuffle=True, drop_last=True)
+testing_data_small = StockPrice(seq_length_small, test_length, train=False, scaler=data_scaler)
 
-testing_data = StockPrice(seq_length, test_length, train=False, scaler=data_scaler)
+training_data_medium = StockPrice(seq_length_medium, test_length, train=True, scaler=data_scaler)
+train_dataloader_medium = DataLoader(training_data_medium, batch_size=batch_size, shuffle=True, drop_last=True)
+testing_data_medium = StockPrice(seq_length_medium, test_length, train=False, scaler=data_scaler)
+
+training_data_large = StockPrice(seq_length_large, test_length, train=True, scaler=data_scaler)
+train_dataloader_large = DataLoader(training_data_large, batch_size=batch_size, shuffle=True, drop_last=True)
+testing_data_large = StockPrice(seq_length_large, test_length, train=False, scaler=data_scaler)
 
 # %%
 # visualize the data with train-test split
-df = training_data.data.copy().assign(Date = lambda x: pd.to_datetime(x["Date"], format="%Y-%m-%d"))
+df = training_data_small.data.copy().assign(Date = lambda x: pd.to_datetime(x["Date"], format="%Y-%m-%d"))
 df.loc[:, ["Train", "Test"]] = np.nan
 n_train = len(df) - test_length
 df.iloc[:n_train, 3] = df.iloc[:n_train, 1]
@@ -146,55 +154,92 @@ class LSTM(nn.Module):
                 
         return F.mse_loss(y, targets)
     
+    def train_model(self, N_epochs, learning_rate, train_dl, seq_length, batch_size, test_data):
+        # initialize optimizer
+        optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+
+        start_time = time.time()
+        for n in range(N_epochs):
+    
+            losses = []
+            test_losses = []
+    
+            for inputs, outputs in train_dl: 
+                # format the input for LSTM: batch size is the second dimension
+                x = inputs.T.view((seq_length, batch_size, 1))
+        
+                # perform single step of optimization
+                optimizer.zero_grad()
+                hidden, state = self.init_hidden(batch_size)
+                y, _ = self.forward(x, hidden, state)
+                loss = F.mse_loss(y, outputs)
+                loss.backward()
+                optimizer.step()
+        
+                # store training and test losses for monitoring
+                losses.append(loss.item())
+                test_losses.append(self.calculate_loss(test_data))
+                self.train()
+    
+            # monitor progress
+            print(f"On epoch {n+1}, the average trainig loss is {np.mean(losses):.6f} and average test error is {np.mean(test_losses):.6f}.")
+        
+        end_time = time.time()
+        print(f"Total training time {end_time - start_time}")
+    
 # %%
-# create a model and train it using training data
-lstm = LSTM(n_hidden=20)
+# create a model and train it using small training data
+lstm_small = LSTM(n_hidden=30)
 
-# initialize learning parameters
-N_epochs = 15
-optimizer = optim.Adam(lstm.parameters(), lr=0.001)
+lstm_small.train_model(20, 0.001, train_dataloader_small, seq_length_small, batch_size, testing_data_small)
 
-start_time = time.time()
-for n in range(N_epochs):
-    
-    losses = []
-    test_losses = []
-    
-    for inputs, outputs in train_dataloader: 
-        # format the input for LSTM: batch size is the second dimension
-        x = inputs.T.view((seq_length, batch_size, 1))
-        
-        # perform single step of optimization
-        optimizer.zero_grad()
-        hidden, state = lstm.init_hidden(batch_size)
-        y, _ = lstm.forward(x, hidden, state)
-        loss = F.mse_loss(y, outputs)
-        loss.backward()
-        optimizer.step()
-        
-        # store training and test losses for monitoring
-        losses.append(loss.item())
-        test_losses.append(lstm.calculate_loss(testing_data))
-        lstm.train()
-    
-    # monitor progress
-    print(f"On epoch {n+1}, the average trainig loss is {np.mean(losses):.6f} and average test error is {np.mean(test_losses):.6f}.")
-        
-end_time = time.time()
-print(f"Total training time {end_time - start_time}")
-
-# %%
 # add LSTM prediction to the constructed data frame
-test_input, test_targets = testing_data.inputs, testing_data.targets
-ypred = lstm.forecast(test_input, len(test_targets), scaler=testing_data.scaler)
+test_input, test_targets = testing_data_small.inputs, testing_data_small.targets
+ypred = lstm_small.forecast(test_input, len(test_targets), scaler=testing_data_small.scaler)
 ypred = ypred.numpy().flatten()
 
-df.loc[:, "LSTM"] = np.nan
+df.loc[:, "LSTM, small"] = np.nan
 df.iloc[(len(df) - len(ypred)):, 5] = ypred
 
+# %%
+# create a model and train it using medium training data
+lstm_medium = LSTM(n_hidden=30)
+
+lstm_medium.train_model(30, 0.001, train_dataloader_medium, seq_length_medium, batch_size, testing_data_medium)
+
+# add LSTM prediction to the constructed data frame
+test_input, test_targets = testing_data_medium.inputs, testing_data_medium.targets
+ypred = lstm_medium.forecast(test_input, len(test_targets), scaler=testing_data_medium.scaler)
+ypred = ypred.numpy().flatten()
+
+df.loc[:, "LSTM, medium"] = np.nan
+df.iloc[(len(df) - len(ypred)):, 6] = ypred
+
+# %%
+# create a model and train it using training data
+lstm_large = LSTM(n_hidden=50)
+
+lstm_large.train_model(30, 0.001, train_dataloader_large, seq_length_large, batch_size, testing_data_large)
+
+# add LSTM prediction to the constructed data frame
+test_input, test_targets = testing_data_large.inputs, testing_data_large.targets
+ypred = lstm_large.forecast(test_input, len(test_targets), scaler=testing_data_large.scaler)
+ypred = ypred.numpy().flatten()
+
+df.loc[:, "LSTM, large"] = np.nan
+df.iloc[(len(df) - len(ypred)):, 7] = ypred
+
+# %%
+# plot the forecasts
 fig, ax = plt.subplots(1, 1, figsize=(4,4))
 
-df.iloc[-20:, :].plot(x="Date", y=["Train", "Test", "LSTM"], ax=ax, style=["-", "--", ":"], grid=True)
+df.iloc[-20:, :].plot(
+    x="Date",
+    y=["Train", "Test", "LSTM, small", "LSTM, medium", "LSTM, large"],
+    ax=ax,
+    # style=["-", "--", ":"],
+    grid=True
+)
 
 ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
 ax.xaxis.set_minor_locator(mdates.DayLocator())
