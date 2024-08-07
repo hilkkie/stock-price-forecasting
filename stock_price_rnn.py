@@ -142,7 +142,7 @@ class LSTM(nn.Module):
                 
         # scale the output if transformation is given
         if scaler is not None:
-            y_fct = torch.from_numpy(scaler.inverse_transform(y_fct.numpy()))
+            y_fct = torch.from_numpy(scaler.inverse_transform(y_fct.numpy().reshape(-1, 1)))
             
         return y_fct
     
@@ -154,9 +154,17 @@ class LSTM(nn.Module):
                 
         return F.mse_loss(y, targets)
     
-    def train_model(self, N_epochs, learning_rate, train_dl, seq_length, batch_size, test_data):
+
+    def train_model(self, N_epochs, learning_rate,
+                    train_dl, seq_length, batch_size, test_data,
+                    lr_scheduler_func=None, lr_params=None):
         # initialize optimizer
         optimizer = optim.Adam(self.parameters(), lr=learning_rate)
+        # initialize learning rate scheduler, if given
+        if lr_scheduler_func is not None:
+            lr_scheduler = lr_scheduler_func(optimizer, *lr_params)
+        else:
+            lr_scheduler = None
 
         start_time = time.time()
         for n in range(N_epochs):
@@ -180,6 +188,10 @@ class LSTM(nn.Module):
                 losses.append(loss.item())
                 test_losses.append(self.calculate_loss(test_data))
                 self.train()
+                
+            # advance learning rate scheduler, if given
+            if lr_scheduler is not None:
+                lr_scheduler.step()
     
             # monitor progress
             print(f"On epoch {n+1}, the average trainig loss is {np.mean(losses):.6f} and average test error is {np.mean(test_losses):.6f}.")
@@ -191,7 +203,10 @@ class LSTM(nn.Module):
 # create a model and train it using small training data
 lstm_small = LSTM(n_hidden=30)
 
-lstm_small.train_model(20, 0.001, train_dataloader_small, seq_length_small, batch_size, testing_data_small)
+lstm_small.train_model(
+    25, 0.001, train_dataloader_small, seq_length_small, batch_size, testing_data_small,
+    lr_scheduler_func=optim.lr_scheduler.MultiStepLR, lr_params=[[15, 20]]
+)
 
 # add LSTM prediction to the constructed data frame
 test_input, test_targets = testing_data_small.inputs, testing_data_small.targets
@@ -199,13 +214,16 @@ ypred = lstm_small.forecast(test_input, len(test_targets), scaler=testing_data_s
 ypred = ypred.numpy().flatten()
 
 df.loc[:, "LSTM, small"] = np.nan
-df.iloc[(len(df) - len(ypred)):, 5] = ypred
+df.iloc[(len(df) - len(ypred)):, len(df.columns)-1] = ypred
 
 # %%
 # create a model and train it using medium training data
-lstm_medium = LSTM(n_hidden=30)
+lstm_medium = LSTM(n_hidden=35)
 
-lstm_medium.train_model(30, 0.001, train_dataloader_medium, seq_length_medium, batch_size, testing_data_medium)
+lstm_medium.train_model(
+    30, 0.001, train_dataloader_medium, seq_length_medium, batch_size, testing_data_medium,
+    lr_scheduler_func=optim.lr_scheduler.MultiStepLR, lr_params=[[15, 20, 25]]
+)
 
 # add LSTM prediction to the constructed data frame
 test_input, test_targets = testing_data_medium.inputs, testing_data_medium.targets
@@ -213,13 +231,15 @@ ypred = lstm_medium.forecast(test_input, len(test_targets), scaler=testing_data_
 ypred = ypred.numpy().flatten()
 
 df.loc[:, "LSTM, medium"] = np.nan
-df.iloc[(len(df) - len(ypred)):, 6] = ypred
+df.iloc[(len(df) - len(ypred)):, len(df.columns)-1] = ypred
 
 # %%
-# create a model and train it using training data
-lstm_large = LSTM(n_hidden=50)
+lstm_large = LSTM(n_hidden=40)
 
-lstm_large.train_model(30, 0.001, train_dataloader_large, seq_length_large, batch_size, testing_data_large)
+lstm_large.train_model(
+    35, 0.001, train_dataloader_large, seq_length_large, batch_size, testing_data_large,
+    lr_scheduler_func=optim.lr_scheduler.MultiStepLR, lr_params=[[10, 15, 20]]
+)
 
 # add LSTM prediction to the constructed data frame
 test_input, test_targets = testing_data_large.inputs, testing_data_large.targets
@@ -227,10 +247,10 @@ ypred = lstm_large.forecast(test_input, len(test_targets), scaler=testing_data_l
 ypred = ypred.numpy().flatten()
 
 df.loc[:, "LSTM, large"] = np.nan
-df.iloc[(len(df) - len(ypred)):, 7] = ypred
+df.iloc[(len(df) - len(ypred)):, len(df.columns)-1] = ypred
 
 # %%
-# plot the forecasts
+# plot results for LSTMs
 fig, ax = plt.subplots(1, 1, figsize=(4,4))
 
 df.iloc[-20:, :].plot(
